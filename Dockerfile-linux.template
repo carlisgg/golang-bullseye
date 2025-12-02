@@ -1,15 +1,4 @@
-{{
-	def is_alpine:
-		env.variant | startswith("alpine")
-	;
-	def alpine_version:
-		env.variant | ltrimstr("alpine")
--}}
-{{ if is_alpine then ( -}}
-FROM alpine:{{ alpine_version }} AS build
-{{ ) else ( -}}
 FROM buildpack-deps:{{ env.variant }}-scm AS build
-{{ ) end -}}
 
 ENV PATH /usr/local/go/bin:$PATH
 
@@ -25,57 +14,24 @@ ENV GOLANG_COMMIT $GOLANG_COMMIT
 
 {{
 	def os_arches:
-		if is_alpine then
-			{
-				# https://dl-cdn.alpinelinux.org/alpine/edge/main/
-				# https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/
-				amd64: "x86_64",
-				arm32v6: "armhf",
-				arm32v7: "armv7",
-				arm64v8: "aarch64",
-				i386: "x86",
-				ppc64le: "ppc64le",
-				riscv64: "riscv64",
-				s390x: "s390x",
-			}
-		else
-			{
-				# https://salsa.debian.org/dpkg-team/dpkg/-/blob/main/data/cputable
-				# https://wiki.debian.org/ArchitectureSpecificsMemo#Architecture_baselines
-				# https://deb.debian.org/debian/dists/unstable/Release ("Architectures:")
-				# http://deb.debian.org/debian/dists/unstable/main/
-				# http://deb.debian.org/debian/dists/stable/main/
-				# https://deb.debian.org/debian-ports/dists/unstable/main/
-				amd64: "amd64",
-				arm32v5: "armel",
-				arm32v7: "armhf",
-				arm64v8: "arm64",
-				i386: "i386",
-				mips64le: "mips64el",
-				ppc64le: "ppc64el",
-				riscv64: "riscv64",
-				s390x: "s390x",
-			}
-		end
+		{
+			# https://salsa.debian.org/dpkg-team/dpkg/-/blob/main/data/cputable
+			# https://wiki.debian.org/ArchitectureSpecificsMemo#Architecture_baselines
+			# Debian bullseye architecture mappings
+			amd64: "amd64",
+			arm32v5: "armel",
+			arm32v7: "armhf",
+			arm64v8: "arm64",
+			i386: "i386",
+			mips64le: "mips64el",
+			ppc64le: "ppc64el",
+			riscv64: "riscv64",
+			s390x: "s390x",
+		}
 -}}
 RUN set -eux; \
 	now="$(date '+%s')"; \
-{{ if is_alpine then ( -}}
-	apk add --no-cache --virtual .fetch-deps \
-{{ if env.version != "tip" then ( -}}
-		ca-certificates \
-		gnupg \
-# busybox's "tar" doesn't handle directory mtime correctly, so our SOURCE_DATE_EPOCH lookup doesn't work (the mtime of "/usr/local/go" always ends up being the extraction timestamp)
-		tar \
-{{ ) else ( -}}
-		bash \
-		git \
-{{ ) end -}}
-	; \
-	arch="$(apk --print-arch)"; \
-{{ ) else ( -}}
 	arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-{{ ) end -}}
 {{ if env.version != "tip" then ( -}}
 	url=; \
 {{ ) else "" end -}}
@@ -109,7 +65,7 @@ RUN set -eux; \
 	\
 {{ if env.version != "tip" then ( -}}
 	wget -O go.tgz.asc "$url.asc"; \
-	wget -O go.tgz "$url"{{ if is_alpine then "" else " --progress=dot:giga" end }}; \
+	wget -O go.tgz "$url" --progress=dot:giga; \
 	echo "$sha256 *go.tgz" | sha256sum -c -; \
 	\
 # https://github.com/golang/go/issues/14739#issuecomment-324767697
@@ -197,10 +153,6 @@ RUN set -eux; \
 	ln -svfT /target/usr/local/go /usr/local/go; \
 	touch -t "$touchy" /target/usr/local /target/usr /target; \
 	\
-{{ if is_alpine then ( -}}
-	apk del --no-network .fetch-deps; \
-	\
-{{ ) else "" end -}}
 # smoke test
 	go version; \
 # make sure our reproducibile timestamp is probably still correct (best-effort inline reproducibility test)
@@ -208,11 +160,6 @@ RUN set -eux; \
 	[ "$SOURCE_DATE_EPOCH" = "$epoch" ]; \
 	find /target -newer /target/usr/local/go -exec sh -c 'ls -ld "$@" && exit "$#"' -- '{}' +
 
-{{ if is_alpine then ( -}}
-FROM alpine:{{ alpine_version }}
-
-RUN apk add --no-cache ca-certificates
-{{ ) else ( -}}
 FROM buildpack-deps:{{ env.variant }}-scm
 
 # install cgo-related dependencies
@@ -228,15 +175,12 @@ RUN set -eux; \
 # go depends on "gold" explicitly on arm64
 # https://github.com/docker-library/golang/issues/570 (go depends on "gold" explicitly on arm64)
 # https://github.com/golang/go/issues/22040
-# ... and as of trixie, "gold" is removed from the "binutils" package:
-# > WARNING: gold is being removed from binutils, and is deprecated upstream.
-# (and available as "binutils-gold" which is also a virtual on bookworm so we can reasonably be explicit everywhere)
+# "gold" is removed from the "binutils" package in newer Debian versions, so we use "binutils-gold" explicitly
 	dpkgArch="$(dpkg --print-architecture)"; \
 	if [ "$dpkgArch" = 'arm64' ]; then \
 		apt-get install -y --no-install-recommends binutils-gold; \
 	fi; \
 	rm -rf /var/lib/apt/lists/*
-{{ ) end -}}
 
 {{ if env.version != "tip" then ( -}}
 ENV GOLANG_VERSION {{ .version }}

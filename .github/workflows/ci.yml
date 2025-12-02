@@ -1,59 +1,123 @@
-name: GitHub CI
+name: build-image
 
 on:
-  pull_request:
   push:
-  workflow_dispatch:
-  schedule:
-    - cron: 0 0 * * 0
-
-defaults:
-  run:
-    shell: 'bash -Eeuo pipefail -x {0}'
-
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
+    branches:
+    - master
+    tags:
+    - "*"  # run for tags
 
 jobs:
-
-  generate-jobs:
-    name: Generate Jobs
+  generate-versions:
+    name: Generate Versions Matrix
     runs-on: ubuntu-latest
     outputs:
-      strategy: ${{ steps.generate-jobs.outputs.strategy }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      latest: ${{ steps.set-matrix.outputs.latest }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker-library/bashbrew@HEAD
-      - id: generate-jobs
-        name: Generate Jobs
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - id: set-matrix
         run: |
-          strategy="$("$BASHBREW_SCRIPTS/github-actions/generate.sh")"
+          versions=$(jq -r 'keys[]' versions.json | jq -R -s -c 'split("\n")[:-1]')
+          latest=$(jq -r 'first(keys_unsorted - ["tip"] | .[] | select(endswith("-rc") | not))' versions.json)
+          matrix=$(jq -c --argjson versions "$versions" '{version: $versions}' <<< '{}')
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          echo "latest=$latest" >> $GITHUB_OUTPUT
+          echo "Generated matrix: $matrix"
+          echo "Latest version: $latest"
 
-          EOF="EOF-$RANDOM-$RANDOM-$RANDOM"
-          echo "strategy<<$EOF" >> "$GITHUB_OUTPUT"
-          jq <<<"$strategy" . | tee -a "$GITHUB_OUTPUT"
-          echo "$EOF" >> "$GITHUB_OUTPUT"
-
-  test:
-    needs: generate-jobs
-    strategy: ${{ fromJson(needs.generate-jobs.outputs.strategy) }}
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  build-image:
+    name: build-image
+    needs: generate-versions
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.generate-versions.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Prepare Environment
-        run: ${{ matrix.runs.prepare }}
-      - name: Pull Dependencies
-        run: ${{ matrix.runs.pull }}
-      - name: Build ${{ matrix.name }}
-        run: ${{ matrix.runs.build }}
-      - name: History ${{ matrix.name }}
-        run: ${{ matrix.runs.history }}
-      - name: Test ${{ matrix.name }}
-        run: ${{ matrix.runs.test }}
-      - name: '"docker images"'
-        run: ${{ matrix.runs.images }}
+
+    - name: checkout-repo
+      uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      with:
+        fetch-depth: 0
+
+    - name: Generate Dockerfiles
+      run: ./apply-templates.sh
+
+    - name: Build image
+      id: build
+      uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671 # v4.0.0
+      with:
+        context: ${{ matrix.version }}/bullseye
+        file: ${{ matrix.version }}/bullseye/Dockerfile
+        tags: |
+          mattermost/golang-bullseye:${{ matrix.version }}
+          mattermost/golang-bullseye:${{ matrix.version }}-bullseye
+        push: false
+        outputs: type=docker,dest=/tmp/image-${{ matrix.version }}.tar
+
+    - name: Load image
+      run: docker load -i /tmp/image-${{ matrix.version }}.tar
+
+    - name: Test image
+      run: |
+        set -euo pipefail
+        image="mattermost/golang-bullseye:${{ matrix.version }}"
+        echo "Testing $image..."
+        
+        # Test go version
+        echo "✓ Testing go version..."
+        if ! docker run --rm "$image" go version; then
+          echo "❌ FAILED: go version test"
+          exit 1
+        fi
+        
+        # Test go env
+        echo "✓ Testing go env..."
+        if ! docker run --rm "$image" go env GOROOT > /dev/null; then
+          echo "❌ FAILED: go env GOROOT test"
+          exit 1
+        fi
+        if ! docker run --rm "$image" go env GOPATH > /dev/null; then
+          echo "❌ FAILED: go env GOPATH test"
+          exit 1
+        fi
+        
+        # Test that we can compile and run a simple program
+        echo "✓ Testing go run..."
+        if ! docker run --rm "$image" sh -c 'echo "package main; import \"fmt\"; func main() { fmt.Println(\"Hello, World!\") }" > /tmp/hello.go && go run /tmp/hello.go'; then
+          echo "❌ FAILED: go run test"
+          exit 1
+        fi
+        
+        # Test that we can build a binary
+        echo "✓ Testing go build..."
+        if ! docker run --rm "$image" sh -c 'echo "package main; import \"fmt\"; func main() { fmt.Println(\"Build test\") }" > /tmp/build.go && go build -o /tmp/test /tmp/build.go && /tmp/test'; then
+          echo "❌ FAILED: go build test"
+          exit 1
+        fi
+        
+        echo "✅ All tests passed for $image"
+
+    - name: dockerhub-login
+      uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a # v2.1.0
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Push version tag
+      uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671 # v4.0.0
+      with:
+        context: ${{ matrix.version }}/bullseye
+        file: ${{ matrix.version }}/bullseye/Dockerfile
+        tags: |
+          mattermost/golang-bullseye:${{ matrix.version }}
+          mattermost/golang-bullseye:${{ matrix.version }}-bullseye
+        push: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' }}
+
+    - name: Push latest (for latest version only)
+      if: matrix.version == needs.generate-versions.outputs.latest
+      uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671 # v4.0.0
+      with:
+        context: ${{ matrix.version }}/bullseye
+        file: ${{ matrix.version }}/bullseye/Dockerfile
+        tags: mattermost/golang-bullseye:latest
+        push: ${{ github.ref == 'refs/heads/master' }}

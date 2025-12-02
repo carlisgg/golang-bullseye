@@ -4,7 +4,7 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM buildpack-deps:bookworm-scm AS build
+FROM buildpack-deps:bullseye-scm AS build
 
 ENV PATH /usr/local/go/bin:$PATH
 
@@ -102,7 +102,7 @@ RUN set -eux; \
 	[ "$SOURCE_DATE_EPOCH" = "$epoch" ]; \
 	find /target -newer /target/usr/local/go -exec sh -c 'ls -ld "$@" && exit "$#"' -- '{}' +
 
-FROM buildpack-deps:bookworm-scm
+FROM buildpack-deps:bullseye-scm
 
 # install cgo-related dependencies
 RUN set -eux; \
@@ -117,9 +117,7 @@ RUN set -eux; \
 # go depends on "gold" explicitly on arm64
 # https://github.com/docker-library/golang/issues/570 (go depends on "gold" explicitly on arm64)
 # https://github.com/golang/go/issues/22040
-# ... and as of trixie, "gold" is removed from the "binutils" package:
-# > WARNING: gold is being removed from binutils, and is deprecated upstream.
-# (and available as "binutils-gold" which is also a virtual on bookworm so we can reasonably be explicit everywhere)
+# "gold" is removed from the "binutils" package in newer Debian versions, so we use "binutils-gold" explicitly
 	dpkgArch="$(dpkg --print-architecture)"; \
 	if [ "$dpkgArch" = 'arm64' ]; then \
 		apt-get install -y --no-install-recommends binutils-gold; \

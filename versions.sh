@@ -213,12 +213,11 @@ for version in "${versions[@]}"; do
 				)
 				| .value.env +=
 						if $bashbrewArch == "i386" then
-							# i386 in Debian is non-SSE2, Alpine appears to be similar (but interesting, not FreeBSD?)
+							# i386 in Debian is non-SSE2
 							{ GOARCH: "386", GO386: "softfloat" }
 						elif $bashbrewArch == "amd64" then
 							# https://go.dev/doc/go1.18#amd64
 							{ GOAMD64: "v1" }
-						# TODO ^^ figure out what to do with GOAMD64 / GO386 if/when the OS baselines change and these choices needs to be per-variant /o\ (probably move it to the template instead, in fact, since that is where we can most easily toggle based on variant)
 						elif $bashbrewArch == "riscv64" then
 							# https://go.dev/doc/go1.23#riscv
 							{ GORISCV64: "rva20u64" }
@@ -235,25 +234,7 @@ for version in "${versions[@]}"; do
 			)
 		),
 		variants: [
-			"trixie",
-			"bookworm",
-			(
-				"3.22",
-				"3.21",
-				empty
-			| "alpine" + .),
-			if .arches | has("windows-amd64") and .["windows-amd64"].url then # TODO consider windows + tip
-				(
-					"ltsc2025",
-					"ltsc2022",
-					empty
-				| "windows/windowsservercore-" + .),
-				(
-					"ltsc2025",
-					"ltsc2022",
-					empty
-				| "windows/nanoserver-" + .)
-			else empty end
+			"bullseye"
 		],
 	}
 	# if "date" or "commit" are null, exclude them
