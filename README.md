@@ -45,10 +45,11 @@ This script builds the images locally and runs the same tests as the CI workflow
 ### Publishing Images
 
 Configure GitHub Secrets:
-- `REGISTRY_URL` - Your registry URL (e.g., `ghcr.io`, `registry.example.com`)
-- `REGISTRY_USERNAME` - Registry username
-- `REGISTRY_PASSWORD` - Registry password/token
-- `IMAGE_FILTER` (optional) - Comma-separated list of images to publish (leave empty to publish all)
+- `DOCKER_REGISTRY_URL` - Your registry URL (e.g., `ghcr.io`, `registry.example.com`, `docker.io`)
+- `DOCKER_REGISTRY_USERNAME` - Registry username
+- `DOCKER_REGISTRY_PASSWORD` - Registry password/token
+
+Images will be automatically built, tested, and published on push to `master` branch or when tags are pushed.
 
 Images will be automatically published on push to `main`/`master` branches, or manually via workflow dispatch.
 
