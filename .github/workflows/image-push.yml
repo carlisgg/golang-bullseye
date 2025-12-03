@@ -50,7 +50,7 @@ jobs:
             exit 1
           fi
           
-          # Determine registry and construct full image tag
+          # Determine registry and image name
           REGISTRY="${{ secrets.DOCKER_REGISTRY_URL }}"
           if [ -z "$REGISTRY" ]; then
             echo "Error: DOCKER_REGISTRY_URL secret is not set"
@@ -58,11 +58,20 @@ jobs:
           fi
           # Remove trailing slash if present
           REGISTRY="${REGISTRY%/}"
+          
+          # Get image name from secret or use GitHub username as default
+          IMAGE_NAME="${{ secrets.DOCKER_IMAGE_NAME }}"
+          if [ -z "$IMAGE_NAME" ]; then
+            # Default to GitHub username (no organization)
+            IMAGE_NAME="${{ github.actor }}/golang-bullseye"
+          fi
+          
+          # Construct full image tag
           # For docker.io, don't add prefix (it's the default)
           if [[ "$REGISTRY" == "docker.io" ]]; then
-            IMAGE_TAG="mattermost/golang-bullseye:$VERSION"
+            IMAGE_TAG="$IMAGE_NAME:$VERSION"
           else
-            IMAGE_TAG="$REGISTRY/mattermost/golang-bullseye:$VERSION"
+            IMAGE_TAG="$REGISTRY/$IMAGE_NAME:$VERSION"
           fi
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT

@@ -48,6 +48,7 @@ Configure GitHub Secrets:
 - `DOCKER_REGISTRY_URL` - Your registry URL (e.g., `ghcr.io`, `registry.example.com`, `docker.io`)
 - `DOCKER_REGISTRY_USERNAME` - Registry username
 - `DOCKER_REGISTRY_PASSWORD` - Registry password/token
+- `DOCKER_IMAGE_NAME` (optional) - Image name/namespace (e.g., `myorg/golang-bullseye`). Defaults to `$GITHUB_ACTOR/golang-bullseye` (your GitHub username) if not set.
 
 Images will be automatically built, tested, and published on push to `master` branch or when tags are pushed.
 
