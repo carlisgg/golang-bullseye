@@ -28,8 +28,8 @@ jobs:
       - name: checkout-repo
         uses: actions/checkout@v4
 
-      - name: Determine version
-        id: version
+      - name: Determine version and registry
+        id: config
         run: |
           if [[ "${{ github.ref }}" == refs/heads/master ]]; then
             VERSION="tip"
@@ -50,8 +50,27 @@ jobs:
             exit 1
           fi
           
+          # Determine registry and construct full image tag
+          REGISTRY="${{ secrets.DOCKER_REGISTRY_URL }}"
+          if [ -z "$REGISTRY" ]; then
+            echo "Error: DOCKER_REGISTRY_URL secret is not set"
+            exit 1
+          fi
+          # Remove trailing slash if present
+          REGISTRY="${REGISTRY%/}"
+          # For docker.io, don't add prefix (it's the default)
+          if [[ "$REGISTRY" == "docker.io" ]]; then
+            IMAGE_TAG="mattermost/golang-bullseye:$VERSION"
+          else
+            IMAGE_TAG="$REGISTRY/mattermost/golang-bullseye:$VERSION"
+          fi
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "registry=$REGISTRY" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
+          echo "Using registry: $REGISTRY"
+          echo "Image tag: $IMAGE_TAG"
 
       - name: Generate Dockerfiles
         run: ./apply-templates.sh
@@ -62,15 +81,15 @@ jobs:
       - name: Build image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ steps.version.outputs.version }}/bullseye
-          file: ${{ steps.version.outputs.version }}/bullseye/Dockerfile
-          tags: mattermost/golang-bullseye:${{ steps.version.outputs.version }}
+          context: ${{ steps.config.outputs.version }}/bullseye
+          file: ${{ steps.config.outputs.version }}/bullseye/Dockerfile
+          tags: ${{ steps.config.outputs.image_tag }}
           push: false
           load: true
 
       - name: Smoke test
         run: |
-          image="mattermost/golang-bullseye:${{ steps.version.outputs.version }}"
+          image="${{ steps.config.outputs.image_tag }}"
           echo "Testing $image..."
           docker run --rm "$image" go version
           echo "Image golang-bullseye smoke test passed"
@@ -78,14 +97,14 @@ jobs:
       - name: Login to registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.DOCKER_REGISTRY_URL }}
+          registry: ${{ steps.config.outputs.registry }}
           username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
 
       - name: Push image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ steps.version.outputs.version }}/bullseye
-          file: ${{ steps.version.outputs.version }}/bullseye/Dockerfile
-          tags: mattermost/golang-bullseye:${{ steps.version.outputs.version }}
+          context: ${{ steps.config.outputs.version }}/bullseye
+          file: ${{ steps.config.outputs.version }}/bullseye/Dockerfile
+          tags: ${{ steps.config.outputs.image_tag }}
           push: true
