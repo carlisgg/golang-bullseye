@@ -11,14 +11,16 @@ This is a simplified fork of the [docker-library/golang](https://github.com/dock
 
 ## Features
 
-- **Single Variant**: Only generates Bullseye-based images (no Alpine, Windows, or other Debian versions)
-- **Custom Registry Publishing**: Built-in GitHub Actions workflow for publishing to your own registry
+- **Single Variant**: Only generates Bullseye-based images
+- **Custom Registry Publishing**: Built-in GitHub Actions workflow for publishing to own registry
 - **Automated Updates**: Scripts to automatically update Go versions from upstream
 - **Multi-Architecture Support**: Supports all architectures that Go provides binaries for
 
 ## Usage
 
 ### Updating Go Versions and Generating Dockerfiles
+
+This will generate proper Dockerfile files according to what's configured in `versions.json`
 
 ```bash
 # Update versions.json from upstream and generate all Dockerfiles
@@ -50,9 +52,11 @@ Configure GitHub Secrets:
 - `DOCKER_REGISTRY_PASSWORD` - Registry password/token
 - `DOCKER_IMAGE_NAME` (optional) - Image name/namespace (e.g., `myorg/golang-bullseye`). Defaults to `$GITHUB_ACTOR/golang-bullseye` (your GitHub username) if not set.
 
-Images will be automatically built, tested, and published on push to `master` branch or when tags are pushed.
+Images are automatically built, tested, and published:
+- **Push to `master`**: Builds and publishes the `tip` version (e.g., `<registry>/<image>:tip`)
+- **Push tag `vX.Y`**: Builds and publishes that version (e.g., tag `v1.24` → `<registry>/<image>:1.24`)
 
-Images will be automatically published on push to `main`/`master` branches, or manually via workflow dispatch.
+The tag must match a key in `versions.json` (e.g., `v1.24` requires a `"1.24"` entry).
 
 ## Attribution
 
